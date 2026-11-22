@@ -47,7 +47,7 @@
 </main>
 <script type="module">
 import OBR, { buildWall, buildLight, buildShape, buildPath, buildImageUpload, buildSceneUpload } from 'https://cdn.jsdelivr.net/npm/@owlbear-rodeo/sdk@3.1.0/+esm';
-import { parse, rooms, pictureBlob, sceneItems, pickMap, savePending, MAPKEY, PART } from './dd2vtt.js';
+import { parse, rooms, pictureBlob, sceneItems, lightItems, pickMap, savePending, MAPKEY, PART } from './dd2vtt.js';
 const $ = (id) => document.getElementById(id);
 const ID = 'com.geezsheets/import';
 const qs = new URLSearchParams(location.search);
@@ -99,8 +99,10 @@ OBR.onReady(async () => {
   async function clear(img) {
     const parts = await OBR.scene.items.getItems((i) => i.metadata[PART] === img.id);
     if (parts.length) await OBR.scene.items.deleteItems(parts.map((i) => i.id));
+    const localParts = await OBR.scene.local.getItems((i) => i.metadata[PART] === img.id);
+    if (localParts.length) await OBR.scene.local.deleteItems(localParts.map((i) => i.id));
     await OBR.scene.items.updateItems([img.id], (d) => { for (const i of d) delete i.metadata[MAPKEY]; });
-    return parts.length;
+    return parts.length + localParts.length;
   }
 
   $('here').onclick = async () => {
@@ -108,8 +110,10 @@ OBR.onReady(async () => {
       const img = await target(), dpi = await OBR.scene.grid.getDpi();
       const old = await clear(img);
       const items = sceneItems({ buildWall, buildLight, buildShape, buildPath }, img, dpi, map, opts());
-      await OBR.scene.items.addItems(items);
-      await OBR.scene.items.updateItems([img.id], (d) => { for (const i of d) i.metadata[MAPKEY] = { name }; });
+      const options = opts();
+      await OBR.scene.items.addItems(items.filter((i) => i.type !== 'LIGHT'));
+      if (options.walls) await OBR.scene.local.addItems(lightItems({ buildLight }, img, dpi, map, options));
+      await OBR.scene.items.updateItems([img.id], (d) => { for (const i of d) i.metadata[MAPKEY] = { name, w: map.w, h: map.h, lights: options.walls ? map.lights : [], lightType: options.lightType }; });
       if (await OBR.scene.fog.getFilled() !== filled()) await OBR.scene.fog.setFilled(filled());
       say(`Placed on "${img.name}": ${what()}${old ? ' (replaced the old ones)' : ''}.`);
       OBR.notification.show(`${img.name}: ${what()}`, 'SUCCESS');

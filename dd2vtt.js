@@ -120,11 +120,19 @@ export function sceneItems(b, img, sceneDpi, map, { roomFog = false, walls = tru
             .fillColor(d.closed ? '#dc2626' : '#16a34a').fillOpacity(0.8).strokeColor('#000000').strokeWidth(2)
             .layer('PROP').visible(false).name(`Door ${i + 1}`), { [DOOR]: { wall: wall.id, closed: d.closed } }).build());
     });
-    for (const l of map.lights) {
-        out.push(tag(b.buildLight().position(at(l)).attenuationRadius(Math.max(cell * 0.5, l.range * cell))
-            .sourceRadius(cell * 0.2).falloff(1).innerAngle(360).outerAngle(360).lightType(lightType).name('Light').locked(true)).build());
-    }
+    out.push(...lightItems(b, img, sceneDpi, map, { lightType }));
     return out;
+}
+
+// Lights are local-only in Owlbear. Keep this separate from sceneItems so callers
+// can add walls/doors to the shared scene and lights to each client's local scene.
+export function lightItems(b, img, sceneDpi, map, { lightType = 'SECONDARY' } = {}) {
+    const { at, cell } = fitter(img, sceneDpi, map);
+    const tag = (it) => it.attachedTo(img.id).disableAttachmentBehavior(['VISIBLE', 'LOCKED', 'COPY'])
+        .metadata({ [PART]: img.id });
+    return (map.lights || []).map((l) => tag(b.buildLight().position(at(l))
+        .attenuationRadius(Math.max(cell * 0.5, l.range * cell)).sourceRadius(cell * 0.2)
+        .falloff(1).innerAngle(360).outerAngle(360).lightType(lightType).name('Light').locked(true)).build());
 }
 
 // ---- Rooms: the areas walls and doors close off, for room-by-room fog ----

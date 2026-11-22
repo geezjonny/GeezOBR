@@ -7,7 +7,7 @@ import OBR, { buildWall, buildLight, buildShape, buildPath } from 'https://cdn.j
 import { reach, feet, plain } from './move.js';
 import { hpBars, who } from './hp.js';
 import { WATER, buildWaterEffect } from './water.js';
-import { sceneItems, loadPending, dropPending, inRoom, MAPKEY, DOOR, ROOM } from './dd2vtt.js';
+import { sceneItems, lightItems, loadPending, dropPending, inRoom, MAPKEY, PART, DOOR, ROOM } from './dd2vtt.js';
 const page = (p) => new URL(p, location.href).href;
 OBR.onReady(async () => {
   const role = await OBR.player.getRole();
@@ -82,7 +82,9 @@ OBR.onReady(async () => {
         if (!img) continue;
         const items = sceneItems({ buildWall, buildLight, buildShape, buildPath }, img, await OBR.scene.grid.getDpi(), map, map.opts);
         await OBR.scene.items.updateItems([img.id], (d) => { for (const i of d) i.metadata[MAPKEY] = { name }; });
-        await OBR.scene.items.addItems(items);
+        await OBR.scene.items.addItems(items.filter((i) => i.type !== 'LIGHT'));
+        if (map.opts?.walls) await OBR.scene.local.addItems(lightItems({ buildLight }, img, await OBR.scene.grid.getDpi(), map, map.opts));
+        await OBR.scene.items.updateItems([img.id], (d) => { for (const i of d) i.metadata[MAPKEY] = { name, w: map.w, h: map.h, lights: map.opts?.walls ? map.lights : [], lightType: map.opts?.lightType || 'SECONDARY' }; });
         dropPending(name);
         OBR.notification.show(`${name}: ${[map.opts?.roomFog && (map.rooms || []).length + ' fog rooms', map.opts?.walls !== false && `${map.walls.length} walls, ${map.doors.length} doors, ${map.lights.length} lights`].filter(Boolean).join(', ')} placed`, 'SUCCESS');
       }
@@ -90,6 +92,27 @@ OBR.onReady(async () => {
     finally { placing = false; }
   }
   OBR.scene.items.onChange(placePending);
+
+  // Imported lights are local-only, so every client rebuilds them from the map marker.
+  let lightRun = Promise.resolve(), lightKey = '';
+  async function syncImportedLights() {
+    if (!(await OBR.scene.isReady())) return;
+    const maps = await OBR.scene.items.getItems((i) => i.type === 'IMAGE' && i.layer === 'MAP' && i.metadata[MAPKEY]?.lights);
+    const wanted = maps.map((i) => [i, i.metadata[MAPKEY]]);
+    const local = await OBR.scene.local.getItems((i) => i.type === 'LIGHT' && i.metadata[PART]);
+    const stale = local.filter((l) => !wanted.some(([i]) => l.metadata[PART] === i.id));
+    if (stale.length) await OBR.scene.local.deleteItems(stale.map((i) => i.id));
+    const key = JSON.stringify(wanted.map(([i, m]) => [i.id, i.image, i.grid, i.position, i.scale, i.rotation, m]));
+    if (key === lightKey) return;
+    const old = local.filter((l) => wanted.some(([i]) => l.metadata[PART] === i.id));
+    if (old.length) await OBR.scene.local.deleteItems(old.map((i) => i.id));
+    const dpi = await OBR.scene.grid.getDpi();
+    const next = wanted.flatMap(([img, m]) => lightItems({ buildLight }, img, dpi, { w: m.w, h: m.h, lights: m.lights }, { lightType: m.lightType || 'SECONDARY' }));
+    if (next.length) await OBR.scene.local.addItems(next);
+    lightKey = key;
+  }
+  const queueLights = () => { lightRun = lightRun.then(syncImportedLights).catch((e) => console.warn('GeezSheets lights:', e)); };
+  OBR.scene.items.onChange(queueLights); OBR.scene.grid.onChange(queueLights); OBR.scene.onReadyChange(queueLights); queueLights();
 
   // Rooms tool (GM): click inside a room to reveal it, click again to fog it. A revealed room is a hidden fog shape.
   const TOOL = 'com.geezsheets/rooms', ROOMS = (i) => i.layer === 'FOG' && i.metadata[ROOM];
