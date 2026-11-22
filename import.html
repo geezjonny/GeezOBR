@@ -47,7 +47,7 @@
   <small>Everything is attached to the map picture: move or scale the picture and it follows.</small>
 </main>
 <script type="module">
-import OBR, { buildCurve, buildWall, buildLight, buildShape, buildPath, buildImageUpload, buildSceneUpload } from 'https://cdn.jsdelivr.net/npm/@owlbear-rodeo/sdk@3.1.0/+esm';
+import OBR, { buildCurve, buildWall, buildLight, buildShape, buildPath, buildImage, buildImageUpload, buildSceneUpload } from 'https://cdn.jsdelivr.net/npm/@owlbear-rodeo/sdk@3.1.0/+esm';
 import { parse, rooms, pictureBlob, sceneItems, uploadFog, simpleUpload, pickMap, savePending, MAPKEY, PART } from './dd2vtt.js';
 const $ = (id) => document.getElementById(id);
 const ID = 'com.geezsheets/import';
@@ -124,7 +124,7 @@ OBR.onReady(async () => {
       $('scene').disabled = true; say('Uploading the picture to your Owlbear storage…');
       const options = opts(), blob = pictureBlob(map.image);
       const bitmap = await createImageBitmap(blob);
-      const fog = simpleUpload({ buildPath, buildShape }, map, bitmap.width, bitmap.height);
+      const fog = simpleUpload({ buildPath, buildImage }, map, bitmap.width, bitmap.height);
       bitmap.close();
       const base = buildImageUpload(blob).dpi(map.ppg).name(name).locked(true).build();
       await OBR.assets.uploadScenes([buildSceneUpload().name(name).baseMap(base).items(fog).fogFilled(false).gridType('SQUARE').build()]);

@@ -337,16 +337,23 @@ export function dropPending(name) {
     try { localStorage.setItem(PENDING, JSON.stringify(all)); } catch {}
 }
 
-// Minimal scene upload: one fog rectangle over the whole map, and ONE plain prop marking the first light.
-// No walls, doors, rooms or metadata, so nothing else reacts to it (no lighting yet).
+const TORCH = 'https://geezjonny.github.io/GeezOBR/torch.png';
+// Minimal scene upload: one fog rectangle over the whole map, and ONE torch prop marking the first light.
+// No walls, doors or rooms. The prop carries LIGHT metadata so background.html lights it.
 export function simpleUpload(b, map, width, height) {
     const k = 150 / map.ppg, W = width * k, H = height * k, cell = (width / map.w) * k;
     const items = [b.buildPath().commands([[0, 0, 0], [1, W, 0], [1, W, H], [1, 0, H], [5]])
         .fillColor('#222222').fillOpacity(1).strokeOpacity(0).layer('FOG').locked(true).name('Fog').build()];
     const l = (map.lights || [])[0];
-    if (l) items.push(b.buildShape().shapeType('CIRCLE').width(cell * 0.4).height(cell * 0.4)
-        .position({ x: l.x * (width / map.w) * k, y: l.y * (height / map.h) * k })
-        .fillColor('#fbbf24').fillOpacity(0.8).strokeColor('#92400e').strokeWidth(2)
-        .layer('PROP').name('Light').build());
+    if (l) {
+        // Torch picture sized to ~half a cell; its light is 5 ft (one cell) and soft-edged. background.html turns the
+        // LIGHT metadata into a real light on every client.
+        const size = cell * 0.5;
+        items.push(b.buildImage({ width: 1254, height: 1254, mime: 'image/png', url: TORCH },
+            { dpi: 1254 * 150 / size, offset: { x: 627, y: 627 } })
+            .position({ x: l.x * (width / map.w) * k, y: l.y * (height / map.h) * k })
+            .layer('PROP').name('Torch')
+            .metadata({ [LIGHT]: { radius: cell, lightType: 'PRIMARY', falloff: 1 } }).build());
+    }
     return items;
 }
