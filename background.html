@@ -7,6 +7,7 @@ import OBR, { buildCurve, buildWall, buildLight, buildShape, buildPath } from 'h
 import { reach, feet, plain } from './move.js';
 import { hpBars, rollBubbles, who } from './hp.js';
 import { startWeather } from './weather.js';
+import { startSpawn } from './spawn.js';
 import { WATER, buildWaterEffect } from './water.js';
 import { sceneItems, lightItems, lightProp, propLight, localWall, loadPending, dropPending, inRoom, MAPKEY, PART, DOOR, ROOM, WALL, LIGHT } from './dd2vtt.js';
 const page = (p) => new URL(p, location.href).href;
@@ -241,6 +242,7 @@ OBR.onReady(async () => {
   hpBars(role);
   rollBubbles();
   startWeather();
+  if (role === 'GM') startSpawn();
 });
 </script>
 </body>
