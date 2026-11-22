@@ -46,8 +46,8 @@
   <small>Everything is attached to the map picture: move or scale the picture and it follows.</small>
 </main>
 <script type="module">
-import OBR, { buildWall, buildLight, buildShape, buildPath, buildImageUpload, buildSceneUpload } from 'https://cdn.jsdelivr.net/npm/@owlbear-rodeo/sdk@3.1.0/+esm';
-import { parse, rooms, pictureBlob, sceneItems, lightItems, pickMap, savePending, MAPKEY, PART } from './dd2vtt.js';
+import OBR, { buildCurve, buildWall, buildLight, buildShape, buildPath, buildImageUpload, buildSceneUpload } from 'https://cdn.jsdelivr.net/npm/@owlbear-rodeo/sdk@3.1.0/+esm';
+import { parse, rooms, pictureBlob, sceneItems, uploadFog, lightItems, pickMap, savePending, MAPKEY, PART } from './dd2vtt.js';
 const $ = (id) => document.getElementById(id);
 const ID = 'com.geezsheets/import';
 const qs = new URLSearchParams(location.search);
@@ -109,7 +109,7 @@ OBR.onReady(async () => {
     try {
       const img = await target(), dpi = await OBR.scene.grid.getDpi();
       const old = await clear(img);
-      const items = sceneItems({ buildWall, buildLight, buildShape, buildPath }, img, dpi, map, opts());
+      const items = sceneItems({ buildCurve, buildWall, buildLight, buildShape, buildPath }, img, dpi, map, opts());
       const options = opts();
       await OBR.scene.items.addItems(items.filter((i) => i.type !== 'LIGHT'));
       if (options.walls) await OBR.scene.local.addItems(lightItems({ buildLight }, img, dpi, map, options));
@@ -123,9 +123,13 @@ OBR.onReady(async () => {
   $('scene').onclick = async () => {
     try {
       $('scene').disabled = true; say('Uploading the picture to your Owlbear storage…');
-      savePending(name, map, opts());   // placed by the background page when the scene opens
-      const base = buildImageUpload(pictureBlob(map.image)).dpi(map.ppg).name(name).locked(true).build();
-      await OBR.assets.uploadScenes([buildSceneUpload().name(name).baseMap(base).fogFilled(filled()).gridType('SQUARE').build()]);
+      const options = opts(), blob = pictureBlob(map.image);
+      const bitmap = await createImageBitmap(blob);
+      const fog = uploadFog({ buildPath }, map, options, bitmap.width, bitmap.height, name);
+      bitmap.close();
+      savePending(name, map, { ...options, roomFog: false }); // fog is already in the upload
+      const base = buildImageUpload(blob).dpi(map.ppg).name(name).locked(true).build();
+      await OBR.assets.uploadScenes([buildSceneUpload().name(name).baseMap(base).items(fog).fogFilled(filled()).gridType('SQUARE').build()]);
       say(`Scene "${name}" uploaded. Open it: ${what()} go on as it loads (in this browser).`);
     } catch (e) { say('Upload failed: ' + e.message, true); }
     finally { $('scene').disabled = !map?.image; }

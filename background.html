@@ -3,11 +3,11 @@
 <head><meta charset="utf-8"><title>GeezSheets background</title></head>
 <body>
 <script type="module">
-import OBR, { buildWall, buildLight, buildShape, buildPath } from 'https://cdn.jsdelivr.net/npm/@owlbear-rodeo/sdk@3.1.0/+esm';
+import OBR, { buildCurve, buildWall, buildLight, buildShape, buildPath } from 'https://cdn.jsdelivr.net/npm/@owlbear-rodeo/sdk@3.1.0/+esm';
 import { reach, feet, plain } from './move.js';
 import { hpBars, who } from './hp.js';
 import { WATER, buildWaterEffect } from './water.js';
-import { sceneItems, lightItems, loadPending, dropPending, inRoom, MAPKEY, PART, DOOR, ROOM } from './dd2vtt.js';
+import { sceneItems, lightItems, localWall, loadPending, dropPending, inRoom, MAPKEY, PART, DOOR, ROOM, WALL } from './dd2vtt.js';
 const page = (p) => new URL(p, location.href).href;
 OBR.onReady(async () => {
   const role = await OBR.player.getRole();
@@ -62,7 +62,7 @@ OBR.onReady(async () => {
     icons: [{ icon: page('icon.svg'), label: 'Open / close door', filter: { roles: ['GM'], every: [{ key: ['metadata', DOOR, 'wall'], value: undefined, operator: '!=' }] } }],
     async onClick(c) {
       const flip = new Map(c.items.map((h) => [h.metadata[DOOR].wall, !h.metadata[DOOR].closed]));
-      await OBR.scene.items.updateItems([...flip.keys()], (d) => { for (const w of d) { w.blocking = flip.get(w.id); w.metadata[DOOR] = { closed: w.blocking }; } });
+      await OBR.scene.items.updateItems([...flip.keys()], (d) => { for (const w of d) { w.metadata[DOOR] = { closed: flip.get(w.id) }; } });
       await OBR.scene.items.updateItems(c.items.map((h) => h.id), (d) => { for (const h of d) {
         const closed = flip.get(h.metadata[DOOR].wall);
         h.metadata[DOOR] = { ...h.metadata[DOOR], closed }; h.style.fillColor = closed ? '#dc2626' : '#16a34a';
@@ -80,33 +80,59 @@ OBR.onReady(async () => {
       for (const [name, map] of Object.entries(pend)) {
         const img = free.find((i) => i.name === name);
         if (!img) continue;
-        const items = sceneItems({ buildWall, buildLight, buildShape, buildPath }, img, await OBR.scene.grid.getDpi(), map, map.opts);
-        await OBR.scene.items.updateItems([img.id], (d) => { for (const i of d) i.metadata[MAPKEY] = { name }; });
+        const items = sceneItems({ buildCurve, buildWall, buildLight, buildShape, buildPath }, img, await OBR.scene.grid.getDpi(), map, map.opts);
+        const uploadedFog = await OBR.scene.items.getItems((i) => i.metadata[ROOM]?.pendingMap === name);
+        if (uploadedFog.length) await OBR.scene.items.updateItems(uploadedFog.map((i) => i.id), (draft) => {
+          for (const i of draft) {
+            i.attachedTo = img.id; i.disableAttachmentBehavior = ['VISIBLE', 'LOCKED', 'COPY'];
+            i.metadata[PART] = img.id; delete i.metadata[ROOM].pendingMap;
+          }
+        });
         await OBR.scene.items.addItems(items.filter((i) => i.type !== 'LIGHT'));
         if (map.opts?.walls) await OBR.scene.local.addItems(lightItems({ buildLight }, img, await OBR.scene.grid.getDpi(), map, map.opts));
         await OBR.scene.items.updateItems([img.id], (d) => { for (const i of d) i.metadata[MAPKEY] = { name, w: map.w, h: map.h, lights: map.opts?.walls ? map.lights : [], lightType: map.opts?.lightType || 'SECONDARY' }; });
         dropPending(name);
         OBR.notification.show(`${name}: ${[map.opts?.roomFog && (map.rooms || []).length + ' fog rooms', map.opts?.walls !== false && `${map.walls.length} walls, ${map.doors.length} doors, ${map.lights.length} lights`].filter(Boolean).join(', ')} placed`, 'SUCCESS');
       }
-    } catch (e) { console.warn('GeezSheets dd2vtt:', e); }
+    } catch (e) { console.warn('GeezSheets dd2vtt:', e); OBR.notification.show('Map setup failed: ' + e.message, 'ERROR'); }
     finally { placing = false; }
   }
   OBR.scene.items.onChange(placePending);
 
+  let wallRun = Promise.resolve();
+  const wallKeys = new Map();
+  async function syncWalls() {
+    if (!(await OBR.scene.isReady())) { wallKeys.clear(); return; }
+    const sources = await OBR.scene.items.getItems((i) => i.type === 'CURVE' && i.metadata[WALL]);
+    const locals = await OBR.scene.local.getItems((i) => i.type === 'WALL' && i.metadata[WALL]);
+    const stale = locals.filter((i) => !sources.some((s) => s.id === i.metadata[WALL]));
+    if (stale.length) await OBR.scene.local.deleteItems(stale.map((i) => i.id));
+    for (const source of sources) {
+      const key = JSON.stringify([source.points, source.position, source.scale, source.rotation, source.metadata[DOOR]]);
+      const old = locals.find((i) => i.metadata[WALL] === source.id);
+      if (old && wallKeys.get(source.id) === key) continue;
+      if (old) await OBR.scene.local.deleteItems([old.id]);
+      await OBR.scene.local.addItems([localWall(buildWall, source)]);
+      wallKeys.set(source.id, key);
+    }
+  }
+  const queueWalls = () => { wallRun = wallRun.then(syncWalls).catch((e) => console.warn('GeezSheets walls:', e)); };
+  OBR.scene.items.onChange(queueWalls); OBR.scene.onReadyChange(queueWalls); queueWalls();
+
   // Imported lights are local-only, so every client rebuilds them from the map marker.
   let lightRun = Promise.resolve(), lightKey = '';
   async function syncImportedLights() {
-    if (!(await OBR.scene.isReady())) return;
+    if (!(await OBR.scene.isReady())) { lightKey = ''; return; }
     const maps = await OBR.scene.items.getItems((i) => i.type === 'IMAGE' && i.layer === 'MAP' && i.metadata[MAPKEY]?.lights);
     const wanted = maps.map((i) => [i, i.metadata[MAPKEY]]);
     const local = await OBR.scene.local.getItems((i) => i.type === 'LIGHT' && i.metadata[PART]);
     const stale = local.filter((l) => !wanted.some(([i]) => l.metadata[PART] === i.id));
     if (stale.length) await OBR.scene.local.deleteItems(stale.map((i) => i.id));
-    const key = JSON.stringify(wanted.map(([i, m]) => [i.id, i.image, i.grid, i.position, i.scale, i.rotation, m]));
-    if (key === lightKey) return;
+    const dpi = await OBR.scene.grid.getDpi();
+    const key = JSON.stringify([dpi, wanted.map(([i, m]) => [i.id, i.image, i.grid, i.position, i.scale, i.rotation, m])]);
+    if (key === lightKey && local.length === wanted.reduce((n, [, m]) => n + m.lights.length, 0)) return;
     const old = local.filter((l) => wanted.some(([i]) => l.metadata[PART] === i.id));
     if (old.length) await OBR.scene.local.deleteItems(old.map((i) => i.id));
-    const dpi = await OBR.scene.grid.getDpi();
     const next = wanted.flatMap(([img, m]) => lightItems({ buildLight }, img, dpi, { w: m.w, h: m.h, lights: m.lights }, { lightType: m.lightType || 'SECONDARY' }));
     if (next.length) await OBR.scene.local.addItems(next);
     lightKey = key;
@@ -171,7 +197,7 @@ OBR.onReady(async () => {
     const items = await OBR.scene.items.getItems();
     const tok = items.find((i) => i.metadata[INIT]?.active && (role === 'GM' || i.visible));
     if (tok?.id !== turn) { turn = tok?.id; start = tok?.position; speed = tok && speedOf(tok); }
-    const walls = items.filter((i) => i.type === 'WALL' && i.blocking);
+    const walls = items.filter((i) => i.type === 'CURVE' && i.metadata[WALL] && i.metadata[DOOR]?.closed !== false);
     const key = turn ? turn + ':' + walls.map((w) => w.id).join() : '';
     if (key === drawn) return;
     drawn = key;

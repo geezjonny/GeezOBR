@@ -5,6 +5,7 @@ export const MAPKEY = 'com.geezsheets/dd2vtt';     // on the map picture: { name
 export const PART = 'com.geezsheets/dd2vtt-part';  // on every wall, door, handle and light we add: the map picture's id
 export const DOOR = 'com.geezsheets/door';         // on a door wall: { closed }; on its handle: { wall, closed }
 export const ROOM = 'com.geezsheets/room';         // on a room's fog: { n, outside, area }
+export const WALL = 'com.geezsheets/wall';         // shared geometry rendered as local SDK walls
 
 const num = (v, d) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 
@@ -107,11 +108,13 @@ export function sceneItems(b, img, sceneDpi, map, { roomFog = false, walls = tru
     });
     if (!walls) return out;
     for (const line of map.walls) {
-        out.push(tag(b.buildWall().points(line.map(at)).doubleSided(true).blocking(true).name('Wall').locked(true)).build());
+        out.push(tag(b.buildCurve().points(line.map(at)).tension(0).strokeOpacity(0).fillOpacity(0)
+            .name('Wall').locked(true).disableHit(true), { [WALL]: true }).build());
     }
     map.doors.forEach((d, i) => {
-        const wall = tag(b.buildWall().points([at(d.a), at(d.b)]).doubleSided(true).blocking(d.closed).name(`Door ${i + 1}`).locked(true),
-            { [DOOR]: { closed: d.closed } }).build();
+        const wall = tag(b.buildCurve().points([at(d.a), at(d.b)]).tension(0).strokeOpacity(0).fillOpacity(0)
+            .name(`Door ${i + 1}`).locked(true).disableHit(true),
+            { [WALL]: true, [DOOR]: { closed: d.closed } }).build();
         out.push(wall);
         if (!handles) return;
         // GM-only handle in the doorway: right-click it to open or close the door
@@ -122,6 +125,29 @@ export function sceneItems(b, img, sceneDpi, map, { roomFog = false, walls = tru
     });
     out.push(...lightItems(b, img, sceneDpi, map, { lightType }));
     return out;
+}
+
+export function localWall(buildWall, item) {
+    const rad = (item.rotation || 0) * Math.PI / 180, c = Math.cos(rad), s = Math.sin(rad);
+    const points = item.points.map((p) => {
+        const x = p.x * item.scale.x, y = p.y * item.scale.y;
+        return { x: item.position.x + x * c - y * s, y: item.position.y + x * s + y * c };
+    });
+    return buildWall().points(points).doubleSided(true).blocking(item.metadata[DOOR]?.closed !== false)
+        .metadata({ [WALL]: item.id }).name(item.name).build();
+}
+
+// Scene uploads use a 150-DPI grid by default. Embed static fog directly, without
+// depending on a background iframe or browser storage after opening the scene.
+export function uploadFog(b, map, options, width, height, name) {
+    const img = { id: 'upload', image: { width, height }, grid: { dpi: map.ppg, offset: { x: 0, y: 0 } },
+        position: { x: 0, y: 0 }, scale: { x: 1, y: 1 }, rotation: 0 };
+    return sceneItems(b, img, 150, map, { ...options, walls: false }).map((item) => {
+        delete item.attachedTo;
+        delete item.metadata[PART];
+        if (name) item.metadata[ROOM].pendingMap = name;
+        return item;
+    });
 }
 
 // Lights are local-only in Owlbear. Keep this separate from sceneItems so callers
