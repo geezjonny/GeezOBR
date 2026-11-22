@@ -120,3 +120,34 @@ export function hpBars(role) {
     OBR.scene.items.onChange(sync);
     OBR.scene.onReadyChange(sync);
 }
+
+// Roll results on the token: companion.html publishes each character's latest roll to Firebase (gmroll/gaia/<sheet id>);
+// every client shows it for a few seconds as a local label above the matching token.
+const ROLLS = 'https://geezsheets-default-rtdb.firebaseio.com/gmroll/gaia.json', ROLLTAG = 'com.geezsheets/roll';
+export function rollBubbles() {
+    const seen = new Map(); let first = true;
+    async function show(id, r) {
+        if (!(await OBR.scene.isReady())) return;
+        const dpi = await OBR.scene.grid.getDpi();
+        const t = (await OBR.scene.items.getItems((i) => (i.layer === 'CHARACTER' || i.layer === 'MOUNT') && i.type === 'IMAGE'))
+            .find((i) => who(i)?.id === id);
+        if (!t) return;
+        const old = await OBR.scene.local.getItems((i) => i.metadata[ROLLTAG] === t.id);
+        if (old.length) await OBR.scene.local.deleteItems(old.map((i) => i.id));
+        const b = box(t, dpi), nat = r.nat === 20 ? ' ★' : r.nat === 1 ? ' ✖' : '';
+        const label = buildLabel().plainText(`${r.label}: ${r.total}${nat}`).position({ x: b.x + b.w / 2, y: b.y })
+            .fontSize(Math.round(dpi * 0.22)).backgroundColor(r.nat === 20 ? '#166534' : r.nat === 1 ? '#7f1d1d' : '#1e293b')
+            .backgroundOpacity(0.92).pointerDirection('DOWN').pointerHeight(Math.round(dpi * 0.08))
+            .attachedTo(t.id).locked(true).disableHit(true).disableAttachmentBehavior(NO).layer('TEXT').metadata({ [ROLLTAG]: t.id }).build();
+        await OBR.scene.local.addItems([label]);
+        setTimeout(() => OBR.scene.local.deleteItems([label.id]).catch(() => {}), 7000);
+    }
+    stream(ROLLS, (all) => {
+        for (const [id, r] of Object.entries(all || {})) {
+            if (!r || typeof r !== 'object' || seen.get(id) === r.ts) continue;
+            seen.set(id, r.ts);
+            if (!first && Date.now() - r.ts < 15000) show(id, r).catch((e) => console.warn('GeezSheets roll:', e));
+        }
+        first = false;
+    });
+}

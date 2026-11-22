@@ -5,7 +5,7 @@
 <script type="module">
 import OBR, { buildCurve, buildWall, buildLight, buildShape, buildPath } from 'https://cdn.jsdelivr.net/npm/@owlbear-rodeo/sdk@3.1.0/+esm';
 import { reach, feet, plain } from './move.js';
-import { hpBars, who } from './hp.js';
+import { hpBars, rollBubbles, who } from './hp.js';
 import { startWeather } from './weather.js';
 import { WATER, buildWaterEffect } from './water.js';
 import { sceneItems, lightItems, lightProp, propLight, localWall, loadPending, dropPending, inRoom, MAPKEY, PART, DOOR, ROOM, WALL, LIGHT } from './dd2vtt.js';
@@ -239,6 +239,7 @@ OBR.onReady(async () => {
 
   // HP bars on PC tokens (hp.js)
   hpBars(role);
+  rollBubbles();
   startWeather();
 });
 </script>
