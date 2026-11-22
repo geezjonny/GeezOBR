@@ -7,7 +7,7 @@ import OBR, { buildCurve, buildWall, buildLight, buildShape, buildPath } from 'h
 import { reach, feet, plain } from './move.js';
 import { hpBars, who } from './hp.js';
 import { WATER, buildWaterEffect } from './water.js';
-import { sceneItems, lightItems, localWall, loadPending, dropPending, inRoom, MAPKEY, PART, DOOR, ROOM, WALL } from './dd2vtt.js';
+import { sceneItems, lightItems, lightProp, propLight, localWall, loadPending, dropPending, inRoom, MAPKEY, PART, DOOR, ROOM, WALL, LIGHT } from './dd2vtt.js';
 const page = (p) => new URL(p, location.href).href;
 OBR.onReady(async () => {
   const role = await OBR.player.getRole();
@@ -89,8 +89,7 @@ OBR.onReady(async () => {
           }
         });
         await OBR.scene.items.addItems(items.filter((i) => i.type !== 'LIGHT'));
-        if (map.opts?.walls) await OBR.scene.local.addItems(lightItems({ buildLight }, img, await OBR.scene.grid.getDpi(), map, map.opts));
-        await OBR.scene.items.updateItems([img.id], (d) => { for (const i of d) i.metadata[MAPKEY] = { name, w: map.w, h: map.h, lights: map.opts?.walls ? map.lights : [], lightType: map.opts?.lightType || 'SECONDARY' }; });
+        await OBR.scene.items.updateItems([img.id], (d) => { for (const i of d) i.metadata[MAPKEY] = { name, w: map.w, h: map.h, lights: [], lightType: map.opts?.lightType || 'PRIMARY' }; });
         dropPending(name);
         OBR.notification.show(`${name}: ${[map.opts?.roomFog && (map.rooms || []).length + ' fog rooms', map.opts?.walls !== false && `${map.walls.length} walls, ${map.doors.length} doors, ${map.lights.length} lights`].filter(Boolean).join(', ')} placed`, 'SUCCESS');
       }
@@ -140,6 +139,27 @@ OBR.onReady(async () => {
   const queueLights = () => { lightRun = lightRun.then(syncImportedLights).catch((e) => console.warn('GeezSheets lights:', e)); };
   OBR.scene.items.onChange(queueLights); OBR.scene.grid.onChange(queueLights); OBR.scene.onReadyChange(queueLights); queueLights();
 
+  let propRun = Promise.resolve();
+  const propKeys = new Map();
+  async function syncPropLights() {
+    if (!(await OBR.scene.isReady())) { propKeys.clear(); return; }
+    const props = await OBR.scene.items.getItems((i) => i.layer === 'PROP' && i.metadata[LIGHT]);
+    const locals = await OBR.scene.local.getItems((i) => i.type === 'LIGHT' && i.metadata[LIGHT]);
+    const stale = locals.filter((i) => !props.some((p) => p.id === i.metadata[LIGHT]));
+    if (stale.length) await OBR.scene.local.deleteItems(stale.map((i) => i.id));
+    for (const id of propKeys.keys()) if (!props.some((p) => p.id === id)) propKeys.delete(id);
+    for (const prop of props) {
+      const key = JSON.stringify([prop.position, prop.scale, prop.metadata[LIGHT]]);
+      const old = locals.find((i) => i.metadata[LIGHT] === prop.id);
+      if (old && propKeys.get(prop.id) === key) continue;
+      if (old) await OBR.scene.local.deleteItems([old.id]);
+      await OBR.scene.local.addItems([propLight(buildLight, prop)]);
+      propKeys.set(prop.id, key);
+    }
+  }
+  const queuePropLights = () => { propRun = propRun.then(syncPropLights).catch((e) => console.warn('GeezSheets light props:', e)); };
+  OBR.scene.items.onChange(queuePropLights); OBR.scene.onReadyChange(queuePropLights); queuePropLights();
+
   // Rooms tool (GM): click inside a room to reveal it, click again to fog it. A revealed room is a hidden fog shape.
   const TOOL = 'com.geezsheets/rooms', ROOMS = (i) => i.layer === 'FOG' && i.metadata[ROOM];
   const setRooms = async (pick, visible) => {
@@ -164,8 +184,8 @@ OBR.onReady(async () => {
     cursors: [{ cursor: 'crosshair' }],
     async onToolClick(_, e) {
       const cell = await OBR.scene.grid.getDpi();
-      await OBR.scene.items.addItems([buildLight().position(e.pointerPosition).attenuationRadius(cell * 6).sourceRadius(cell * 0.2)
-        .falloff(1).innerAngle(360).outerAngle(360).lightType('SECONDARY').name('Light').build()]);
+      if (await OBR.player.getRole() !== 'GM') return false;
+      await OBR.scene.items.addItems([lightProp(buildShape, e.pointerPosition, cell * 6, 'PRIMARY', cell).build()]);
       return false;
     },
   });

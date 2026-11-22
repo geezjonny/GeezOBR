@@ -23,6 +23,10 @@ These notes record the SDK behavior used by the extension. The extension current
 
 ## Static fog and scene uploads
 
+- Imports default to infinite fog fill, walls enabled, and primary lights. Each imported light is represented by a hidden, unlocked shared prop with `com.geezsheets/light` metadata containing its world radius and light type.
+- Each client renders a local light from that prop. The emitted light explicitly stays visible even though the shared prop has `visible: false`; moving, scaling or deleting the prop updates its light. The Add Light tool creates the same prop format.
+- `torch.png` is a generated transparent fantasy torch illustration saved for use as prop art. Built-in image generation prompt: "Single lit medieval wooden torch, hand-painted fantasy RPG token style, warm wood and aged brass, crisp dark outlines, sunburst collar, golden-orange flame, isolated on a transparent background, no text or UI." It is provided as an asset; the current light markers use circles.
+
 - Static room fog is a shared `PATH` item on the `FOG` layer. `fillRule('evenodd')` supports holes within a room outline.
 - `buildSceneUpload().items(items)` embeds shared items in the uploaded scene. Use this for fog so it exists immediately, even if the background page fails to initialize.
 - Scene uploads default to a 150-DPI scene grid. Convert map pixels using `150 / map.ppg` when embedding fog beside a base map uploaded at `map.ppg` DPI.

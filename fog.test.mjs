@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { rooms, sceneItems, uploadFog, localWall, WALL, ROOM, DOOR, PART, inRoom } from './dd2vtt.js';
+import { rooms, sceneItems, uploadFog, localWall, propLight, LIGHT, WALL, ROOM, DOOR, PART, inRoom } from './dd2vtt.js';
 
 let serial = 0;
 function builder(type) {
@@ -16,6 +16,13 @@ assert(map.rooms.length >= 2, 'divider creates separate room fog outlines');
 const img = { id: 'map', image: { width: 700, height: 700 }, grid: { dpi: 70, offset: { x: 0, y: 0 } }, position: { x: 0, y: 0 }, scale: { x: 1, y: 1 }, rotation: 0 };
 const items = sceneItems(b, img, 150, map, { roomFog: true });
 const shared = items.filter((i) => i.type !== 'LIGHT');
+assert.equal(shared.length, items.length, 'all imported items are shared-safe, including light props');
+const prop = items.find((i) => i.metadata[LIGHT]);
+assert.equal(prop.layer, 'PROP');
+assert.equal(prop.visible, false, 'light prop is hidden from players');
+assert.equal(prop.locked, false, 'GM can move the prop');
+assert.equal(prop.metadata[PART], img.id);
+assert.equal(propLight(b.buildLight, prop).visible, true, 'hidden prop still emits visible light');
 assert(shared.every((i) => i.type !== 'WALL'), 'shared fog batch contains no local-only walls');
 assert.equal(shared.filter((i) => i.metadata[ROOM]).length, map.rooms.length);
 const uploaded = uploadFog(b, map, { roomFog: true }, 700, 700);
@@ -36,3 +43,32 @@ for (const file of ['background.html', 'import.html']) {
     const code = readFileSync(new URL(file, import.meta.url), 'utf8').split('<script type="module">')[1].split('</script>')[0].replace(/^import .*$/gm, '');
     new Function(code);
 }
+
+// Run the background's actual reconciliation against a joining client's empty local scene.
+let props = [prop], locals = [], ready = true;
+const OBR = { scene: {
+    isReady: async () => ready, onReadyChange() {},
+    items: { getItems: async (f) => props.filter(f), onChange() {} },
+    local: {
+        getItems: async (f) => locals.filter(f),
+        addItems: async (items) => { locals.push(...items); },
+        deleteItems: async (ids) => { locals = locals.filter((i) => !ids.includes(i.id)); },
+    },
+} };
+const html = readFileSync(new URL('background.html', import.meta.url), 'utf8');
+const block = html.slice(html.indexOf('  let propRun'), html.indexOf('  // Rooms tool'));
+const sync = new Function('OBR', 'LIGHT', 'propLight', 'buildLight', block + '\nreturn { syncPropLights, settled: () => propRun };')(OBR, LIGHT, propLight, b.buildLight);
+await sync.settled();
+assert.equal(locals.length, 1, 'joining client recreates prop light');
+const initialId = locals[0].id;
+await sync.syncPropLights();
+assert.equal(locals[0].id, initialId, 'unrelated changes do not rebuild light');
+prop.position = { x: 450, y: 600 };
+await sync.syncPropLights();
+assert.deepEqual(locals[0].position, prop.position, 'light follows prop movement');
+props = []; await sync.syncPropLights();
+assert.equal(locals.length, 0, 'deleting prop removes emitted light');
+props = [prop]; await sync.syncPropLights();
+locals = []; await sync.syncPropLights();
+assert.equal(locals.length, 1, 'lost local lights are restored');
+console.log('PASS light props: hidden markers, joining clients, movement, deletion and recovery');

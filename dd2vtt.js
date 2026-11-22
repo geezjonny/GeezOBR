@@ -6,6 +6,7 @@ export const PART = 'com.geezsheets/dd2vtt-part';  // on every wall, door, handl
 export const DOOR = 'com.geezsheets/door';         // on a door wall: { closed }; on its handle: { wall, closed }
 export const ROOM = 'com.geezsheets/room';         // on a room's fog: { n, outside, area }
 export const WALL = 'com.geezsheets/wall';         // shared geometry rendered as local SDK walls
+export const LIGHT = 'com.geezsheets/light';       // hidden shared prop that emits local light
 
 const num = (v, d) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 
@@ -123,8 +124,27 @@ export function sceneItems(b, img, sceneDpi, map, { roomFog = false, walls = tru
             .fillColor(d.closed ? '#dc2626' : '#16a34a').fillOpacity(0.8).strokeColor('#000000').strokeWidth(2)
             .layer('PROP').visible(false).name(`Door ${i + 1}`), { [DOOR]: { wall: wall.id, closed: d.closed } }).build());
     });
-    out.push(...lightItems(b, img, sceneDpi, map, { lightType }));
+    for (const l of map.lights || []) {
+        const radius = Math.max(cell * 0.5, l.range * cell);
+        out.push(tag(lightProp(b.buildShape, at(l), radius, lightType, cell), { [LIGHT]: { radius, lightType } }).build());
+    }
     return out;
+}
+
+export function lightProp(buildShape, position, radius, lightType = 'PRIMARY', cell = 150) {
+    return buildShape().shapeType('CIRCLE').width(cell * 0.4).height(cell * 0.4).position(position)
+        .fillColor('#fbbf24').fillOpacity(0.8).strokeColor('#92400e').strokeWidth(2)
+        .layer('PROP').visible(false).locked(false).name('Light')
+        .metadata({ [LIGHT]: { radius, lightType } });
+}
+
+export function propLight(buildLight, prop) {
+    const settings = prop.metadata[LIGHT];
+    const radius = settings.radius * Math.max(Math.abs(prop.scale.x), Math.abs(prop.scale.y));
+    // The prop is GM-only; the emitted light must remain visible on every client.
+    return buildLight().position(prop.position).attenuationRadius(radius).sourceRadius(0)
+        .falloff(1).innerAngle(360).outerAngle(360).lightType(settings.lightType || 'PRIMARY')
+        .visible(true).locked(true).metadata({ [LIGHT]: prop.id }).name('Prop light').build();
 }
 
 export function localWall(buildWall, item) {
