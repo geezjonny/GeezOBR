@@ -125,7 +125,7 @@ export function sceneItems(b, img, sceneDpi, map, { roomFog = false, walls = tru
             .layer('PROP').visible(false).name(`Door ${i + 1}`), { [DOOR]: { wall: wall.id, closed: d.closed } }).build());
     });
     for (const l of map.lights || []) {
-        const radius = Math.max(cell * 0.5, l.range * cell);
+        const radius = 2 * cell;
         out.push(tag(lightProp(b.buildShape, at(l), radius, lightType, cell), { [LIGHT]: { radius, lightType } }).build());
     }
     return out;
@@ -177,7 +177,7 @@ export function lightItems(b, img, sceneDpi, map, { lightType = 'SECONDARY' } = 
     const tag = (it) => it.attachedTo(img.id).disableAttachmentBehavior(['VISIBLE', 'LOCKED', 'COPY'])
         .metadata({ [PART]: img.id });
     return (map.lights || []).map((l) => tag(b.buildLight().position(at(l))
-        .attenuationRadius(Math.max(cell * 0.5, l.range * cell)).sourceRadius(cell * 0.2)
+        .attenuationRadius(2 * cell).sourceRadius(cell * 0.2)
         .falloff(1).innerAngle(360).outerAngle(360).lightType(lightType).name('Light').locked(true)).build());
 }
 
@@ -335,4 +335,18 @@ export function dropPending(name) {
     const all = loadPending();
     delete all[name];
     try { localStorage.setItem(PENDING, JSON.stringify(all)); } catch {}
+}
+
+// Minimal scene upload: one fog rectangle over the whole map, and ONE plain prop marking the first light.
+// No walls, doors, rooms or metadata, so nothing else reacts to it (no lighting yet).
+export function simpleUpload(b, map, width, height) {
+    const k = 150 / map.ppg, W = width * k, H = height * k, cell = (width / map.w) * k;
+    const items = [b.buildPath().commands([[0, 0, 0], [1, W, 0], [1, W, H], [1, 0, H], [5]])
+        .fillColor('#222222').fillOpacity(1).strokeOpacity(0).layer('FOG').locked(true).name('Fog').build()];
+    const l = (map.lights || [])[0];
+    if (l) items.push(b.buildShape().shapeType('CIRCLE').width(cell * 0.4).height(cell * 0.4)
+        .position({ x: l.x * (width / map.w) * k, y: l.y * (height / map.h) * k })
+        .fillColor('#fbbf24').fillOpacity(0.8).strokeColor('#92400e').strokeWidth(2)
+        .layer('PROP').name('Light').build());
+    return items;
 }
