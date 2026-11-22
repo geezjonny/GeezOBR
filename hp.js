@@ -135,7 +135,7 @@ export function rollBubbles() {
         const old = await OBR.scene.local.getItems((i) => i.metadata[ROLLTAG] === t.id);
         if (old.length) await OBR.scene.local.deleteItems(old.map((i) => i.id));
         const b = box(t, dpi), nat = r.nat === 20 ? ' ★' : r.nat === 1 ? ' ✖' : '';
-        const label = buildLabel().plainText(`${r.label}: ${r.total}${nat}`).position({ x: b.x + b.w / 2, y: b.y })
+        const label = buildLabel().plainText(`${r.label}: ${r.total}${nat}${r.detail && r.detail !== String(r.total) ? ` (${r.detail})` : ''}`).position({ x: b.x + b.w / 2, y: b.y })
             .fontSize(Math.round(dpi * 0.22)).backgroundColor(r.nat === 20 ? '#166534' : r.nat === 1 ? '#7f1d1d' : '#1e293b')
             .backgroundOpacity(0.92).pointerDirection('DOWN').pointerHeight(Math.round(dpi * 0.08))
             .attachedTo(t.id).locked(true).disableHit(true).disableAttachmentBehavior(NO).layer('TEXT').metadata({ [ROLLTAG]: t.id }).build();
